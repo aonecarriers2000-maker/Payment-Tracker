@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A-One Carriers | Payment Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.3.0/papaparse.min.js"></script>
+    <style>
+        .modal-hidden { display: none !important; }
+        .active-filter { background-color: #4338ca !important; color: white !important; border-color: #6366f1 !important; }
+    </style>
+</head>
+<body class="bg-slate-900 font-sans min-h-screen pb-32 text-slate-200">
+
+    <header class="bg-indigo-700 text-white p-6 shadow-lg sticky top-0 z-20 text-center border-b border-indigo-500">
+        <h1 class="text-2xl font-black tracking-tight italic uppercase">A-ONE CARRIERS</h1>
+        <p class="text-[10px] font-bold uppercase tracking-[0.3em] opacity-80 mt-1">Payment Tracker System</p>
+    </header>
+
+    <div class="max-w-md mx-auto p-4">
+        <div class="grid grid-cols-2 gap-3 mb-6">
+            <button onclick="toggleModal(true)" class="bg-indigo-600 p-4 rounded-2xl font-bold text-sm shadow-lg active:scale-95 transition-all">➕ Add Manual</button>
+            <button onclick="downloadSampleCSV()" class="bg-emerald-600 p-4 rounded-2xl font-bold text-sm shadow-lg active:scale-95 transition-all">📥 Sample CSV</button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mb-6">
+            <button id="btn-pending" onclick="filterData('Pending')" class="bg-slate-800 border border-slate-700 p-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2">⏳ Show Pending</button>
+            <button id="btn-paid" onclick="filterData('Paid')" class="bg-slate-800 border border-slate-700 p-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2">✅ Show Paid</button>
+        </div>
+
+        <div class="bg-slate-800 p-5 rounded-3xl shadow-xl mb-6 border border-slate-700">
+            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-3 tracking-widest">Bulk Data Upload (CSV)</label>
+            <input type="file" id="csv-file" accept=".csv" class="text-xs mb-5 w-full block file:bg-indigo-600 file:text-white file:border-none file:px-4 file:py-2 file:rounded-full file:mr-4 file:font-bold">
+            <input type="text" id="search-bar" placeholder="Search Customer..." class="w-full p-4 bg-slate-900 border border-slate-700 rounded-2xl outline-none text-sm focus:ring-2 focus:ring-indigo-500">
+        </div>
+
+        <div id="client-list" class="space-y-4"></div>
+    </div>
+
+    <div id="manual-modal" class="modal-hidden fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+        <div class="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-slate-800">
+            <h2 class="text-2xl font-black mb-6 text-indigo-700">New Entry</h2>
+            <div class="space-y-4">
+                <input type="text" id="m-month" placeholder="Month (e.g. April-26)" class="w-full p-4 bg-slate-100 rounded-2xl outline-none text-black">
+                <input type="text" id="m-invoice" placeholder="Invoice No." class="w-full p-4 bg-slate-100 rounded-2xl outline-none text-black">
+                <input type="text" id="m-name" placeholder="Customer Name" class="w-full p-4 bg-slate-100 rounded-2xl outline-none text-black">
+                <input type="number" id="m-amount" placeholder="Amount (INR)" class="w-full p-4 bg-slate-100 rounded-2xl outline-none text-black">
+                <select id="m-status" class="w-full p-4 bg-slate-100 rounded-2xl outline-none font-bold">
+                    <option value="Pending">Pending</option>
+                    <option value="Paid">Paid</option>
+                </select>
+                <input type="text" id="m-remark" placeholder="Remark (Optional)" class="w-full p-4 bg-slate-100 rounded-2xl outline-none text-black">
+            </div>
+            <div class="flex gap-3 mt-8">
+                <button onclick="toggleModal(false)" class="flex-1 py-4 bg-slate-100 rounded-2xl font-bold text-slate-500">Cancel</button>
+                <button onclick="addManualEntry()" class="flex-1 py-4 bg-indigo-600 rounded-2xl font-bold text-white">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-5 z-10 text-center">
+        <button onclick="saveToCloud()" id="save-btn" class="max-w-md mx-auto block bg-indigo-600 text-white py-4 rounded-2xl font-black w-full shadow-2xl uppercase tracking-wide">
+            💾 Save & Sync to Drive
+        </button>
+    </div>
+
+    <script>
+        // ⚠️ DEPLOYED SCRIPT URL YAHAN BHI UPDATE KAREIN
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyi2TiBsMcD_icRjk_5NSkm-zgcEgeVn_RjfkoxE6DtdMB8y2G-AUfXkTdGIe6ESbc/exec"; // Is URL ko sahi check kar lena bhai ek baar
+        let clientsData = [];
+        let currentFilter = '';
+
+        function toggleModal(show) { document.getElementById('manual-modal').classList.toggle('modal-hidden', !show); }
+
+        function filterData(status) {
+            currentFilter = status;
+            document.getElementById('btn-pending').classList.toggle('active-filter', status === 'Pending');
+            document.getElementById('btn-paid').classList.toggle('active-filter', status === 'Paid');
+            renderList();
+        }
+
+        function addManualEntry() {
+            const entry = {
+                month: document.getElementById('m-month').value || "Manual",
+                invoice: document.getElementById('m-invoice').value || "N/A",
+                name: document.getElementById('m-name').value,
+                amount: document.getElementById('m-amount').value || "0",
+                status: document.getElementById('m-status').value,
+                remark: document.getElementById('m-remark').value || ""
+            };
+            if(!entry.name) return alert("Name is required");
+            clientsData.unshift(entry);
+            toggleModal(false);
+            filterData(entry.status);
+            
+            // Clean fields
+            document.getElementById('m-invoice').value = '';
+            document.getElementById('m-name').value = '';
+            document.getElementById('m-amount').value = '';
+            document.getElementById('m-remark').value = '';
+        }
+
+        function downloadSampleCSV() {
+            const headers = ["Month", "Invoice No", "Customer Name", "Amount", "Status", "Remark"];
+            const data = "May-26,INV-22481,Sample Customer,5000,Pending,Example note";
+            const link = document.createElement("a");
+            link.href = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + data;
+            link.download = "A-One_Sample.csv";
+            link.click();
+        }
+
+        document.getElementById('csv-file').addEventListener('change', (e) => {
+            Papa.parse(e.target.files[0], {
+                header: true, skipEmptyLines: true,
+                complete: (r) => {
+                    const mapped = r.data.map(row => ({
+                        month: row["Month"] || "CSV",
+                        invoice: row["Invoice No"] || row["Invoice Number"] || row["invoice"] || "N/A",
+                        name: row["Customer Name"] || row["Name"] || "No Name",
+                        amount: String(row["Amount"]).replace(/[^0-9.]/g, '') || "0",
+                        status: row["Status"] || "Pending",
+                        remark: row["Remark"] || ""
+                    }));
+                    clientsData = [...mapped, ...clientsData];
+                    alert("Loaded " + mapped.length + " records.");
+                    renderList();
+                }
+            });
+        });
+
+        function renderList() {
+            const container = document.getElementById('client-list');
+            const term = document.getElementById('search-bar').value.toLowerCase();
+            const filtered = clientsData.filter(c => (!currentFilter || c.status === currentFilter) && c.name.toLowerCase().includes(term));
+            
+            if(!currentFilter && !term) {
+                container.innerHTML = '<p class="text-center py-10 text-slate-500 italic">Please select view (Pending/Paid) or search.</p>';
+                return;
+            }
+
+            container.innerHTML = filtered.map((c, i) => {
+                const globalIndex = clientsData.findIndex(x => x.name === c.name && x.amount === c.amount && x.invoice === c.invoice);
+                return `
+                    <div class="bg-slate-800 p-5 rounded-3xl border border-slate-700/50 mb-3">
+                        <div class="flex justify-between text-[10px] font-bold text-indigo-400 uppercase">
+                            <span>${c.month}</span>
+                            <span class="text-slate-400 bg-slate-900 px-2 py-0.5 rounded-md">INV: ${c.invoice}</span>
+                        </div>
+                        <h3 class="font-bold text-slate-100 text-lg uppercase mt-1.5">${c.name}</h3>
+                        <p class="text-2xl font-black text-indigo-300">₹${c.amount}</p>
+                        ${c.remark ? `<div class="mt-1 text-xs text-slate-400 italic">Note: ${c.remark}</div>` : ''}
+                        <div class="mt-4 pt-4 border-t border-slate-700/50">
+                            <select onchange="updateStatus(${globalIndex}, this.value)" class="w-full text-xs font-black p-3 rounded-xl ${c.status==='Paid'?'bg-emerald-900/40 text-emerald-400':'bg-orange-900/40 text-orange-400'}">
+                                <option value="Pending" ${c.status==='Pending'?'selected':''}>SET AS PENDING</option>
+                                <option value="Paid" ${c.status==='Paid'?'selected':''}>SET AS PAID</option>
+                            </select>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateStatus(index, val) {
+            if(index !== -1) {
+                clientsData[index].status = val;
+                renderList();
+            }
+        }
+
+        async function saveToCloud() {
+            if(clientsData.length === 0) return alert("No data to sync!");
+            const btn = document.getElementById('save-btn');
+            btn.innerText = "⏳ SYNCING TO DRIVE..."; btn.disabled = true;
+            
+            const cleanData = clientsData.map(c => ({
+                month: String(c.month),
+                invoice: String(c.invoice),
+                name: String(c.name),
+                amount: Number(c.amount) || 0,
+                status: String(c.status),
+                remark: String(c.remark)
+            }));
+
+            try {
+                await fetch(SCRIPT_URL, { method: "POST", mode: "no-cors", body: JSON.stringify(cleanData) });
+                alert("✅ Sync Successful!");
+                renderList();
+            } catch (e) { 
+                alert("❌ Error: " + e); 
+            }
+            btn.innerText = "💾 Save & Sync to Drive"; btn.disabled = false;
+        }
+
+        document.getElementById('search-bar').oninput = renderList;
+
+        window.onload = () => {
+            if(SCRIPT_URL !== "PASTE_YOUR_URL_HERE") {
+                fetch(SCRIPT_URL).then(res => res.json()).then(data => {
+                    if(data.length > 1) {
+                        clientsData = data.slice(1).map(r => ({ 
+                            month: r[0], invoice: r[1], name: r[2], amount: r[3], status: r[4], remark: r[5]
+                        }));
+                        renderList();
+                    }
+                }).catch(e => console.log("Starting fresh."));
+            }
+        };
+    </script>
+</body>
+</html>
